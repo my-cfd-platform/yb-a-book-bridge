@@ -1,0 +1,42 @@
+
+syntax = "proto3";
+package a_book_bridge;
+
+enum ABookBridgePositionSide{
+    Buy = 0;
+    Sell = 1;
+}
+
+message ABookBridgeOpenPositionGrpcRequest{
+    string InstrumentId = 1;
+    string PositionId = 2;
+    string AccountId = 3;
+    double Leverage = 4;
+    double InvestAmount = 5;
+    ABookBridgePositionSide Side = 6;
+}
+
+enum OpenPositionGrpcResponseStatusCode{
+    Success = 0;
+    Error = 1;
+}
+
+message ABookBridgeOpenPositionResponse{
+    OpenPositionGrpcResponseStatusCode StatusCode = 1;
+    ABookBridgeOpenPositionGrpcResponsePositionModel Position = 2;
+}
+
+message ABookBridgeOpenPositionGrpcResponsePositionModel{
+    string InternalId = 1;
+    string ExternalId = 2;
+    string AccountId = 3;
+    double Leverage = 4;
+    double InvestAmount = 5;
+    ABookBridgePositionSide Side = 6;
+    uint64 TradeDate = 7;
+    double Price = 8;
+}
+
+service ABookBridgeGrpcService {
+    rpc OpenPosition(ABookBridgeOpenPositionGrpcRequest) returns (ABookBridgeOpenPositionResponse);
+}

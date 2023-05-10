@@ -1,0 +1,148 @@
+use std::{collections::HashMap, sync::Arc, time::Duration};
+
+use my_tcp_sockets::{tcp_connection::SocketConnection, ConnectionEvent, SocketEventCallback};
+use tokio::{
+    sync::{Mutex, RwLock},
+    time::sleep,
+};
+use yb_tcp_contracts::{
+    ExecutionReportModel, FixIncomeMessage, FixMessage, FixOutcomeMessage, PlaceOrderYbTcpContract,
+    PlaceOrderYbTcpContractSide, YourBourseFixTcpSerializer,
+};
+
+#[derive(Debug)]
+pub enum PlaceOrderError {
+    ConnectionNotFound,
+    MaxIterationsReached,
+}
+
+pub struct ABookTcpEventProcessor {
+    active_connection:
+        RwLock<Option<Arc<SocketConnection<FixMessage, YourBourseFixTcpSerializer>>>>,
+    created_orders: Mutex<HashMap<String, ExecutionReportModel>>,
+}
+
+impl ABookTcpEventProcessor {
+    pub fn new() -> Self{
+        Self{
+          active_connection: RwLock::new(None),
+          created_orders: Mutex::new(HashMap::new())  
+        }
+    }
+
+    async fn send_logon(&self) -> Result<(), PlaceOrderError> {
+        let connection = self.get_connection().await?;
+        connection
+            .send(FixMessage::Outcome(FixOutcomeMessage::Logon))
+            .await;
+
+        return Ok(());
+    }
+
+    pub async fn place_order(
+        &self,
+        id: &str,
+        symbol: &str,
+        side: PlaceOrderYbTcpContractSide,
+        qty: f64,
+    ) -> Result<ExecutionReportModel, PlaceOrderError> {
+        let connection = self.get_connection().await?;
+
+        connection
+            .send(FixMessage::Outcome(FixOutcomeMessage::PlaceOrder(
+                PlaceOrderYbTcpContract {
+                    id: id.to_string(),
+                    symbol: symbol.to_string(),
+                    side,
+                    qty,
+                },
+            )))
+            .await;
+
+        let mut count = 0;
+
+        while count <= 10 {
+            match self.created_orders.lock().await.remove(id) {
+                Some(order_report) => {
+                    return Ok(order_report);
+                }
+                None => {
+                    sleep(Duration::from_millis(300)).await;
+                    count += 1;
+                }
+            }
+        }
+
+        return Err(PlaceOrderError::MaxIterationsReached);
+    }
+
+    async fn get_connection(
+        &self,
+    ) -> Result<Arc<SocketConnection<FixMessage, YourBourseFixTcpSerializer>>, PlaceOrderError>
+    {
+        let connection = self.active_connection.write().await;
+
+        if connection.is_none() {
+            return Err(PlaceOrderError::ConnectionNotFound);
+        }
+
+        let connection = connection.as_ref().unwrap();
+
+        return Ok(connection.clone());
+    }
+}
+
+#[async_trait::async_trait]
+impl SocketEventCallback<FixMessage, YourBourseFixTcpSerializer> for ABookTcpEventProcessor {
+    async fn handle(
+        &self,
+        connection_event: ConnectionEvent<FixMessage, YourBourseFixTcpSerializer>,
+    ) {
+        match connection_event {
+            ConnectionEvent::Connected(connection) => {
+                {
+                    self.active_connection
+                        .write()
+                        .await
+                        .replace(connection.clone());
+                }
+                self.send_logon().await.unwrap();
+            }
+            ConnectionEvent::Disconnected(_) => {
+                let mut connection = self.active_connection.write().await;
+                *connection = None;
+            }
+            ConnectionEvent::Payload {
+                payload,
+                ..
+            } => {
+
+                if let FixMessage::Income(src) = &payload {
+                    println!("Income: {:?}", src.to_string());
+                }
+
+                match payload {
+                    FixMessage::Income(income_message) => match income_message {
+                        FixIncomeMessage::Logon(_) => println!("Logon by FIX-Feed"),
+                        FixIncomeMessage::Reject(_) => {
+                            println!("Rejected by FIX-Feed");
+                        },
+                        FixIncomeMessage::Logout(_) => {
+                            println!("Logged out from FIX-Feed");
+                        },
+                        FixIncomeMessage::MarketData(_) => panic!("We don't expect market data"),
+                        FixIncomeMessage::MarketDataReject(_) => panic!("We don't expect market data reject"),
+                        FixIncomeMessage::ExecutionReport(report) => {
+                            let report: ExecutionReportModel = report.into();
+                            self.created_orders.lock().await.insert(report.internal_order_id.clone(), report);
+                        },
+                        FixIncomeMessage::Others(_) => todo!(),
+                        FixIncomeMessage::Pong => println!("Pong FIX-Feed"),
+                        FixIncomeMessage::Ping => println!("Ping FIX-Feed"),
+                    },
+                    _ => {}
+                }
+            }
+        }
+    }
+}
