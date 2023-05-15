@@ -7,9 +7,10 @@ edition = "2021"
 
 [dependencies]
 my-settings-reader = { tag = "0.1.5", git = "https://github.com/MyJetTools/my-settings-reader.git", features = ["background-reader"] }
-yb-tcp-contracts = { git = "https://github.com/my-cfd-platform/yb-tcp-contracts.git", tag="0.1.0" }
+# yb-tcp-contracts = { git = "https://github.com/my-cfd-platform/yb-tcp-contracts.git", tag="0.1.0" }
+yb-tcp-contracts = { path = "/Users/hays/develop/cfd/yb-tcp-contracts"}
 my-tcp-sockets = { tag = "0.1.7", git = "https://github.com/MyJetTools/my-tcp-sockets.git" }
-service-sdk = {git = "https://github.com/MyJetTools/service-sdk.git", tag = "0.1.6", features = ["no-sql", "grpc-server"]}
+service-sdk = {path = "/Users/hays/develop/rnd/service-sdk", features = ["no-sql", "grpc-server"]}
 my-nosql-contracts = { tag = "0.1.16", git = "https://github.com/my-cfd-platform/my-nosql-contracts.git" }
 my-no-sql-tcp-reader = { tag = "0.2.0", git = "https://github.com/MyJetTools/my-no-sql-tcp-reader.git" }
 my-seq-logger = { tag = "0.2.1", git = "https://github.com/MyJetTools/my-seq-logger.git" }

@@ -46,7 +46,7 @@ impl AppContext {
                 Arc::new(move || -> YourBourseFixTcpSerializer {
                     YourBourseFixTcpSerializer::new(credentials.clone())
                 }),
-                Arc::new(ABookTcpEventProcessor::new()),
+                self.fix_socket.clone(),
                 my_logger::LOGGER.clone(),
             )
             .await;
