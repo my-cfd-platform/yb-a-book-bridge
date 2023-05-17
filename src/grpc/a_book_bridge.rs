@@ -4,9 +4,9 @@ use crate::{
     a_book_bridge_grpc::{
         a_book_bridge_grpc_service_server::ABookBridgeGrpcService,
         ABookBridgeOpenPositionGrpcRequest, ABookBridgeOpenPositionGrpcResponsePositionModel,
-        ABookBridgeOpenPositionResponse, ABookBridgePositionSide,
+        ABookBridgeOpenPositionResponse,
     },
-    GrpcService, LP_NAME,
+    open_a_book_position, GrpcService,
 };
 
 #[tonic::async_trait]
@@ -16,36 +16,11 @@ impl ABookBridgeGrpcService for GrpcService {
         request: tonic::Request<ABookBridgeOpenPositionGrpcRequest>,
     ) -> Result<tonic::Response<ABookBridgeOpenPositionResponse>, tonic::Status> {
         let request = request.into_inner();
+        let open_position_result = open_a_book_position(&self.app, &request).await;
 
-        let Some(ns_mapping) = self.app.mapping_ns_reader.get_entity("im", &LP_NAME).await else{
-            println!("LP mapping not found");
-            return Err(tonic::Status::new(tonic::Code::NotFound, "LP not found"));
-        };
+        println!("Place order result: {:?}", open_position_result);
 
-        let Some((external_instrument, _)) = ns_mapping.map.iter().find(|(_, internal)| {
-            internal.to_string() == request.instrument_id
-        }) else{
-            println!("Instrument mapping not found");
-            return Err(tonic::Status::new(tonic::Code::NotFound, "Instrument not found"));
-        };
-
-        let side: ABookBridgePositionSide =
-            ABookBridgePositionSide::from_i32(request.side).unwrap();
-
-        let result = self
-            .app
-            .fix_socket
-            .place_order(
-                &request.position_id,
-                external_instrument,
-                side.into(),
-                request.invest_amount * request.leverage,
-            )
-            .await;
-
-        println!("Place order result: {:?}", result);
-
-        let result = result.unwrap();
+        let result = open_position_result.unwrap();
 
         let response = ABookBridgeOpenPositionResponse {
             status_code: 0,

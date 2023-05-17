@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use my_no_sql_tcp_reader::MyNoSqlDataReader;
-use my_nosql_contracts::{BidAskSnapshotNoSqlEntity, InstrumentMappingEntity};
+use my_nosql_contracts::{BidAskSnapshotNoSqlEntity, InstrumentMappingEntity, TradingInstrumentNoSqlEntity};
 use my_tcp_sockets::TcpClient;
 use service_sdk::ServiceContext;
 use yb_tcp_contracts::{YourBourseFixTcpSerializer, FixLogonCredentials};
@@ -14,6 +14,7 @@ pub struct AppContext {
     pub fix_socket: Arc<ABookTcpEventProcessor>,
     pub mapping_ns_reader: Arc<MyNoSqlDataReader<InstrumentMappingEntity>>,
     pub bid_ask_ns_reader: Arc<MyNoSqlDataReader<BidAskSnapshotNoSqlEntity>>,
+    pub instruments_ns_reader: Arc<MyNoSqlDataReader<TradingInstrumentNoSqlEntity>>,
     pub settings: Arc<Settings>,
     pub tcp_client: TcpClient,
 }
@@ -31,6 +32,7 @@ impl AppContext {
             bid_ask_ns_reader: ctx.get_ns_reader().await,
             settings,
             tcp_client,
+            instruments_ns_reader: ctx.get_ns_reader().await,
         }
     }
 
