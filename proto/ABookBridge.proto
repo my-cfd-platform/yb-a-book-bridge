@@ -18,7 +18,12 @@ message ABookBridgeOpenPositionGrpcRequest{
 
 enum OpenPositionGrpcResponseStatusCode{
     Success = 0;
-    Error = 1;
+    LiquidityProviderNotFound = 1;
+    InstrumentNotFoundInLpMapping = 2;
+    TradingInstrumentNotFound = 3;
+    LpReject = 4;
+    Timeout = 5;
+    Disconnect = 6;
 }
 
 message ABookBridgeOpenPositionResponse{

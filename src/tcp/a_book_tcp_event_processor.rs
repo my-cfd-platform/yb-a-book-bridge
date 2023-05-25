@@ -146,7 +146,7 @@ impl SocketEventCallback<FixMessage, YourBourseFixTcpSerializer> for ABookTcpEve
             }
             ConnectionEvent::Payload {
                 payload,
-                connection,
+                ..
             } => {
                 if let FixMessage::Income(src) = &payload {
                     println!("Income: {:?}", src.to_string());

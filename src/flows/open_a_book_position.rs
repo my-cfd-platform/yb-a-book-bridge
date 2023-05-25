@@ -1,27 +1,27 @@
 use std::sync::Arc;
 
 use my_nosql_contracts::{BidAskSnapshotNoSqlEntity, TradingInstrumentNoSqlEntity};
-use yb_tcp_contracts::ExecutionReportModel;
+use yb_tcp_contracts::{ExecutionReportModel, ExecutionReportModelStatus};
 
 use crate::{
     a_book_bridge_grpc::{ABookBridgeOpenPositionGrpcRequest, ABookBridgePositionSide},
-    AppContext, LP_NAME,
+    AppContext, OpenABookPositionError, LP_NAME,
 };
 
 pub async fn open_a_book_position(
     app: &Arc<AppContext>,
     request: &ABookBridgeOpenPositionGrpcRequest,
-) -> Result<ExecutionReportModel, String> {
+) -> Result<ExecutionReportModel, OpenABookPositionError> {
     let Some(ns_mapping) = app.mapping_ns_reader.get_entity("im", &LP_NAME).await else{
         println!("LP mapping not found");
-        return Err("LP not found".to_string());
+        return Err(OpenABookPositionError::LpReject);
     };
 
     let Some((external_instrument, _)) = ns_mapping.map.iter().find(|(_, internal)| {
         internal.to_string() == request.instrument_id
     }) else{
         println!("Instrument mapping not found");
-        return Err("Instrument not found".to_string());
+        return Err(OpenABookPositionError::InstrumentNotFoundInMapping);
     };
 
     let Some(target_instrument) = app
@@ -31,7 +31,7 @@ pub async fn open_a_book_position(
             &request.instrument_id,
         )
         .await else{
-            return Err("Instrument not found".to_string());
+            return Err(OpenABookPositionError::TradingInstrumentNotFound);
         };
 
     let side: ABookBridgePositionSide = ABookBridgePositionSide::from_i32(request.side).unwrap();
@@ -50,7 +50,16 @@ pub async fn open_a_book_position(
         )
         .await;
 
-    return Ok(result.unwrap());
+    match result {
+        Ok(result) => {
+            if let ExecutionReportModelStatus::Rejected = result.ord_status {
+                return Err(OpenABookPositionError::LpReject);
+            }
+
+            return Ok(result);
+        }
+        Err(err) => return Err(err.into()),
+    }
 }
 
 pub async fn get_price(
