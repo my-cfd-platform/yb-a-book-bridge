@@ -26,4 +26,4 @@ serde = "*"
 serde_yaml = "*"
 serde_json = "*"
 [build-dependencies]
-tonic-build = { version = "0.9.1", features = ["prost"] }
+tonic-build = { version = "0.10.0", features = ["prost"] }

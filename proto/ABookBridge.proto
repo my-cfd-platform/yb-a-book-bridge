@@ -1,6 +1,7 @@
 
 syntax = "proto3";
 package a_book_bridge;
+import "google/protobuf/empty.proto";
 
 enum ABookBridgePositionSide{
     Buy = 0;
@@ -44,4 +45,5 @@ message ABookBridgeOpenPositionGrpcResponsePositionModel{
 
 service ABookBridgeGrpcService {
     rpc OpenPosition(ABookBridgeOpenPositionGrpcRequest) returns (ABookBridgeOpenPositionResponse);
+    rpc Ping(google.protobuf.Empty) returns (google.protobuf.Empty);
 }
