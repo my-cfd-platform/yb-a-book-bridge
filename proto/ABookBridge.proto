@@ -25,7 +25,7 @@ enum OpenPositionGrpcResponseStatusCode{
     LpReject = 4;
     Timeout = 5;
     Disconnect = 6;
-}
+} 
 
 message ABookBridgeOpenPositionResponse{
     OpenPositionGrpcResponseStatusCode StatusCode = 1;

@@ -1,6 +1,7 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use my_tcp_sockets::{tcp_connection::SocketConnection, ConnectionEvent, SocketEventCallback};
+use service_sdk::async_trait;
 use tokio::{
     sync::{Mutex, RwLock},
     time::sleep,
@@ -55,14 +56,16 @@ impl ConnectionContainer {
 
 pub struct ABookTcpEventProcessor {
     active_connection: ConnectionContainer,
-    created_orders: Mutex<HashMap<String, ExecutionReportModel>>,
+    success_orders: Mutex<HashMap<String, ExecutionReportModel>>,
+    failed_orders: Mutex<HashMap<String, ExecutionReportModel>>,
 }
 
 impl ABookTcpEventProcessor {
     pub fn new() -> Self {
         Self {
             active_connection: ConnectionContainer::new(),
-            created_orders: Mutex::new(HashMap::new()),
+            success_orders: Mutex::new(HashMap::new()),
+            failed_orders: Mutex::new(HashMap::new()),
         }
     }
 
@@ -98,7 +101,11 @@ impl ABookTcpEventProcessor {
         let mut count = 0;
 
         while count <= 10 {
-            match self.created_orders.lock().await.remove(id) {
+            if let Some(order_report) = self.success_orders.lock().await.remove(id) {
+                return Ok(order_report);
+            }
+
+            match self.failed_orders.lock().await.remove(id) {
                 Some(order_report) => {
                     return Ok(order_report);
                 }
@@ -144,10 +151,7 @@ impl SocketEventCallback<FixMessage, YourBourseFixTcpSerializer> for ABookTcpEve
                 self.active_connection.remove_connection().await;
                 println!("Disconnected to FIX-Feed");
             }
-            ConnectionEvent::Payload {
-                payload,
-                ..
-            } => {
+            ConnectionEvent::Payload { payload, .. } => {
                 if let FixMessage::Income(src) = &payload {
                     println!("Income: {:?}", src.to_string());
                 }
@@ -167,10 +171,29 @@ impl SocketEventCallback<FixMessage, YourBourseFixTcpSerializer> for ABookTcpEve
                         }
                         FixIncomeMessage::ExecutionReport(report) => {
                             let report: ExecutionReportModel = report.into();
-                            self.created_orders
-                                .lock()
-                                .await
-                                .insert(report.internal_order_id.clone(), report);
+
+                            match report.ord_status {
+                                yb_tcp_contracts::ExecutionReportModelStatus::PendingNew => {}
+                                yb_tcp_contracts::ExecutionReportModelStatus::PartiallyFilled => {}
+                                yb_tcp_contracts::ExecutionReportModelStatus::Filled => {
+                                    self.success_orders
+                                        .lock()
+                                        .await
+                                        .insert(report.internal_order_id.clone(), report);
+                                }
+                                yb_tcp_contracts::ExecutionReportModelStatus::Canceled => {
+                                    self.failed_orders
+                                        .lock()
+                                        .await
+                                        .insert(report.internal_order_id.clone(), report);
+                                }
+                                yb_tcp_contracts::ExecutionReportModelStatus::Rejected => {
+                                    self.failed_orders
+                                        .lock()
+                                        .await
+                                        .insert(report.internal_order_id.clone(), report);
+                                }
+                            }
                         }
                         FixIncomeMessage::Others(data) => {
                             println!("Others FIX-Feed: {:?}", data.to_string())
