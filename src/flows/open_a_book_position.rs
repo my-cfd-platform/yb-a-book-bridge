@@ -12,14 +12,16 @@ pub async fn open_a_book_position(
     app: &Arc<AppContext>,
     request: &ABookBridgeOpenPositionGrpcRequest,
 ) -> Result<ExecutionReportModel, OpenABookPositionError> {
-    let Some(ns_mapping) = app.mapping_ns_reader.get_entity("im", &LP_NAME).await else{
+    let Some(ns_mapping) = app.mapping_ns_reader.get_entity("im", &LP_NAME).await else {
         println!("LP mapping not found");
         return Err(OpenABookPositionError::LpReject);
     };
 
-    let Some((external_instrument, _)) = ns_mapping.map.iter().find(|(_, internal)| {
-        internal.to_string() == request.instrument_id
-    }) else{
+    let Some((external_instrument, _)) = ns_mapping
+        .map
+        .iter()
+        .find(|(_, internal)| internal.to_string() == request.instrument_id)
+    else {
         println!("Instrument mapping not found");
         return Err(OpenABookPositionError::InstrumentNotFoundInMapping);
     };
@@ -30,9 +32,10 @@ pub async fn open_a_book_position(
             TradingInstrumentNoSqlEntity::generate_partition_key(),
             &request.instrument_id,
         )
-        .await else{
-            return Err(OpenABookPositionError::TradingInstrumentNotFound);
-        };
+        .await
+    else {
+        return Err(OpenABookPositionError::TradingInstrumentNotFound);
+    };
 
     let side: ABookBridgePositionSide = ABookBridgePositionSide::from_i32(request.side).unwrap();
 
@@ -41,7 +44,7 @@ pub async fn open_a_book_position(
     let volume = request.invest_amount * request.leverage / price;
 
     let result = app
-        .fix_socket
+        .a_book_tcp_processor
         .place_order(
             &request.position_id,
             external_instrument,

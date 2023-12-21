@@ -11,6 +11,8 @@ use yb_tcp_contracts::{
     PlaceOrderYbTcpContractSide, YourBourseFixTcpSerializer,
 };
 
+use crate::AppContext;
+
 #[derive(Debug)]
 pub enum PlaceOrderError {
     ConnectionNotFound,

@@ -1,65 +1,52 @@
 use std::sync::Arc;
 
 use my_nosql_contracts::{
-    BidAskSnapshotNoSqlEntity, InstrumentMappingEntity, TradingInstrumentNoSqlEntity,
+    BidAskSnapshotNoSqlEntity, InstrumentMappingEntity, ProductSettings,
+    TradingInstrumentNoSqlEntity, YbABookSettings,
 };
-use my_tcp_sockets::TcpClient;
-use service_sdk::{
-    my_no_sql_sdk::reader::{MyNoSqlDataReader, MyNoSqlDataReaderTcp},
-    ServiceContext,
-};
-use yb_tcp_contracts::{FixLogonCredentials, YourBourseFixTcpSerializer};
+use my_tcp_sockets::TcpClientSocketSettings;
+use service_sdk::{my_no_sql_sdk::reader::MyNoSqlDataReaderTcp, ServiceContext};
 
-use crate::{ABookTcpEventProcessor, Settings, SettingsReader};
+use crate::{ABookTcpEventProcessor, SettingsReader};
 
 pub const LP_NAME: &str = "Yourbourse";
 
 pub struct AppContext {
-    pub fix_socket: Arc<ABookTcpEventProcessor>,
-    pub mapping_ns_reader:
-        Arc<dyn MyNoSqlDataReader<InstrumentMappingEntity> + Send + Sync + 'static>,
-    pub bid_ask_ns_reader:
-        Arc<dyn MyNoSqlDataReader<BidAskSnapshotNoSqlEntity> + Send + Sync + 'static>,
-    pub instruments_ns_reader:
-        Arc<dyn MyNoSqlDataReader<TradingInstrumentNoSqlEntity> + Send + Sync + 'static>,
+    pub mapping_ns_reader: Arc<MyNoSqlDataReaderTcp<InstrumentMappingEntity>>,
+    pub bid_ask_ns_reader: Arc<MyNoSqlDataReaderTcp<BidAskSnapshotNoSqlEntity>>,
+    pub instruments_ns_reader: Arc<MyNoSqlDataReaderTcp<TradingInstrumentNoSqlEntity>>,
+    pub product_settings: Arc<MyNoSqlDataReaderTcp<ProductSettings>>,
     pub settings: Arc<SettingsReader>,
-    pub tcp_client: TcpClient,
+    pub a_book_tcp_processor: Arc<ABookTcpEventProcessor>,
 }
 
 impl AppContext {
     pub async fn new(ctx: &ServiceContext, settings: Arc<SettingsReader>) -> Self {
-        let tcp_client = TcpClient::new(
-            "yourbourse - fix-trading-client".to_string(),
-            settings.clone(),
-        );
-
         Self {
-            fix_socket: Arc::new(ABookTcpEventProcessor::new()),
             mapping_ns_reader: ctx.get_ns_reader().await,
             bid_ask_ns_reader: ctx.get_ns_reader().await,
             settings,
-            tcp_client,
+
             instruments_ns_reader: ctx.get_ns_reader().await,
+            product_settings: ctx.get_ns_reader().await,
+            a_book_tcp_processor: Arc::new(ABookTcpEventProcessor::new()),
         }
     }
+}
 
-    pub async fn start(&self) {
-        let settings = self.settings.get_settings().await;
-
-        let credentials = FixLogonCredentials {
-            password: settings.password.clone(),
-            sender: settings.sender.clone(),
-            target: settings.target.clone(),
-        };
-
-        self.tcp_client
-            .start(
-                Arc::new(move || -> YourBourseFixTcpSerializer {
-                    YourBourseFixTcpSerializer::new(credentials.clone())
-                }),
-                self.fix_socket.clone(),
-                service_sdk::my_logger::LOGGER.clone(),
+#[async_trait::async_trait]
+impl TcpClientSocketSettings for AppContext {
+    async fn get_host_port(&self) -> Option<String> {
+        let product_settings = self
+            .product_settings
+            .get_entity(
+                YbABookSettings::PARTITION_KEY,
+                YbABookSettings::ROW_KEY.unwrap(),
             )
-            .await;
+            .await?;
+
+        let yb_settings = product_settings.unwrap_yb_a_book_settings();
+
+        return Some(yb_settings.url.clone());
     }
 }
