@@ -32,20 +32,16 @@ impl AppContext {
             a_book_tcp_processor: Arc::new(ABookTcpEventProcessor::new()),
         }
     }
+
+    pub async fn get_yb_settings(&self) -> Option<YbABookSettings> {
+        self.product_settings.get_enum_case_model().await
+    }
 }
 
 #[async_trait::async_trait]
 impl TcpClientSocketSettings for AppContext {
     async fn get_host_port(&self) -> Option<String> {
-        let product_settings = self
-            .product_settings
-            .get_entity(
-                YbABookSettings::PARTITION_KEY,
-                YbABookSettings::ROW_KEY.unwrap(),
-            )
-            .await?;
-
-        let yb_settings = product_settings.unwrap_yb_a_book_settings();
+        let yb_settings = self.get_yb_settings().await?;
 
         return Some(yb_settings.url.clone());
     }

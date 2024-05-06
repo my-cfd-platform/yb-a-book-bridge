@@ -48,7 +48,7 @@ impl ABookBridgeGrpcService for GrpcService {
 
     async fn ping(
         &self,
-        request: tonic::Request<()>,
+        _request: tonic::Request<()>,
     ) -> Result<tonic::Response<()>, tonic::Status> {
         return Ok(tonic::Response::new(()));
     }

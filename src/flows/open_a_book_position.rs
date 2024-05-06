@@ -37,7 +37,7 @@ pub async fn open_a_book_position(
         return Err(OpenABookPositionError::TradingInstrumentNotFound);
     };
 
-    let side: ABookBridgePositionSide = ABookBridgePositionSide::from_i32(request.side).unwrap();
+    let side: ABookBridgePositionSide = ABookBridgePositionSide::try_from(request.side).unwrap();
 
     let price = get_price(&app, "USD", target_instrument).await;
 

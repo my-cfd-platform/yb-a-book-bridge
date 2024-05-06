@@ -1,17 +1,12 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use my_tcp_sockets::{tcp_connection::SocketConnection, ConnectionEvent, SocketEventCallback};
+use my_tcp_sockets::{tcp_connection::TcpSocketConnection, SocketEventCallback};
 use service_sdk::async_trait;
 use tokio::{
     sync::{Mutex, RwLock},
     time::sleep,
 };
-use yb_tcp_contracts::{
-    ExecutionReportModel, FixIncomeMessage, FixMessage, FixOutcomeMessage, PlaceOrderYbTcpContract,
-    PlaceOrderYbTcpContractSide, YourBourseFixTcpSerializer,
-};
-
-use crate::AppContext;
+use yb_tcp_contracts::{tcp_serializer::YourBourseFixTcpSerializer, *};
 
 #[derive(Debug)]
 pub enum PlaceOrderError {
@@ -20,7 +15,7 @@ pub enum PlaceOrderError {
 }
 
 pub struct ConnectionContainer {
-    pub connection: RwLock<Option<Arc<SocketConnection<FixMessage, YourBourseFixTcpSerializer>>>>,
+    pub connection: RwLock<Option<Arc<YbTcpSocketConnection>>>,
 }
 
 impl ConnectionContainer {
@@ -30,10 +25,7 @@ impl ConnectionContainer {
         }
     }
 
-    pub async fn init_connection(
-        &self,
-        connection: Arc<SocketConnection<FixMessage, YourBourseFixTcpSerializer>>,
-    ) {
+    pub async fn init_connection(&self, connection: Arc<YbTcpSocketConnection>) {
         println!("Connection set");
         let mut connection_mut = self.connection.write().await;
         *connection_mut = Some(connection);
@@ -45,9 +37,7 @@ impl ConnectionContainer {
         *connection_mut = None;
     }
 
-    pub async fn get_connection(
-        &self,
-    ) -> Option<Arc<SocketConnection<FixMessage, YourBourseFixTcpSerializer>>> {
+    pub async fn get_connection(&self) -> Option<Arc<YbTcpSocketConnection>> {
         let connection = self.connection.read().await;
         match &*connection {
             Some(connection) => Some(connection.clone()),
@@ -73,9 +63,7 @@ impl ABookTcpEventProcessor {
 
     async fn send_logon(&self) -> Result<(), PlaceOrderError> {
         let connection = self.get_connection().await?;
-        connection
-            .send(FixMessage::Outcome(FixOutcomeMessage::Logon))
-            .await;
+        connection.send(&FixMessage::Logon).await;
 
         return Ok(());
     }
@@ -90,14 +78,12 @@ impl ABookTcpEventProcessor {
         let connection = self.get_connection().await?;
 
         connection
-            .send(FixMessage::Outcome(FixOutcomeMessage::PlaceOrder(
-                PlaceOrderYbTcpContract {
-                    id: id.to_string(),
-                    symbol: symbol.to_string(),
-                    side,
-                    qty,
-                },
-            )))
+            .send(&FixMessage::PlaceOrder(PlaceOrderYbTcpContract {
+                id: id.to_string(),
+                symbol: symbol.to_string(),
+                side,
+                qty,
+            }))
             .await;
 
         let mut count = 0;
@@ -121,10 +107,7 @@ impl ABookTcpEventProcessor {
         return Err(PlaceOrderError::MaxIterationsReached);
     }
 
-    async fn get_connection(
-        &self,
-    ) -> Result<Arc<SocketConnection<FixMessage, YourBourseFixTcpSerializer>>, PlaceOrderError>
-    {
+    async fn get_connection(&self) -> Result<Arc<YbTcpSocketConnection>, PlaceOrderError> {
         let connection = self.active_connection.get_connection().await;
 
         if connection.is_none() {
@@ -138,74 +121,70 @@ impl ABookTcpEventProcessor {
 }
 
 #[async_trait::async_trait]
-impl SocketEventCallback<FixMessage, YourBourseFixTcpSerializer> for ABookTcpEventProcessor {
-    async fn handle(
+impl SocketEventCallback<FixMessage, YourBourseFixTcpSerializer, YbTcpSate>
+    for ABookTcpEventProcessor
+{
+    async fn connected(&self, connection: Arc<YbTcpSocketConnection>) {
+        println!("Connected to FIX-Feed");
+        self.active_connection.init_connection(connection).await;
+        self.send_logon().await.unwrap();
+    }
+
+    async fn disconnected(
         &self,
-        connection_event: ConnectionEvent<FixMessage, YourBourseFixTcpSerializer>,
+        _connection: Arc<TcpSocketConnection<FixMessage, YourBourseFixTcpSerializer, YbTcpSate>>,
     ) {
-        match connection_event {
-            ConnectionEvent::Connected(connection) => {
-                println!("Connected to FIX-Feed");
-                self.active_connection.init_connection(connection).await;
-                self.send_logon().await.unwrap();
+        self.active_connection.remove_connection().await;
+    }
+    async fn payload(
+        &self,
+        _connection: &Arc<TcpSocketConnection<FixMessage, YourBourseFixTcpSerializer, YbTcpSate>>,
+        contract: FixMessage,
+    ) {
+        match contract {
+            FixMessage::Logon => println!("Logon by FIX-Feed"),
+            FixMessage::Reject => {
+                println!("Rejected by FIX-Feed");
             }
-            ConnectionEvent::Disconnected(_) => {
-                self.active_connection.remove_connection().await;
-                println!("Disconnected to FIX-Feed");
+            FixMessage::Logout => {
+                println!("Logged out from FIX-Feed");
             }
-            ConnectionEvent::Payload { payload, .. } => {
-                if let FixMessage::Income(src) = &payload {
-                    println!("Income: {:?}", src.to_string());
-                }
+            FixMessage::MarketData(_) => panic!("We don't expect market data"),
+            FixMessage::MarketDataReject(_) => {
+                panic!("We don't expect market data reject")
+            }
+            FixMessage::ExecutionReport(report) => {
+                let report: ExecutionReportModel = report.into();
 
-                match payload {
-                    FixMessage::Income(income_message) => match income_message {
-                        FixIncomeMessage::Logon(_) => println!("Logon by FIX-Feed"),
-                        FixIncomeMessage::Reject(_) => {
-                            println!("Rejected by FIX-Feed");
-                        }
-                        FixIncomeMessage::Logout(_) => {
-                            println!("Logged out from FIX-Feed");
-                        }
-                        FixIncomeMessage::MarketData(_) => panic!("We don't expect market data"),
-                        FixIncomeMessage::MarketDataReject(_) => {
-                            panic!("We don't expect market data reject")
-                        }
-                        FixIncomeMessage::ExecutionReport(report) => {
-                            let report: ExecutionReportModel = report.into();
-
-                            match report.ord_status {
-                                yb_tcp_contracts::ExecutionReportModelStatus::PendingNew => {}
-                                yb_tcp_contracts::ExecutionReportModelStatus::PartiallyFilled => {}
-                                yb_tcp_contracts::ExecutionReportModelStatus::Filled => {
-                                    self.success_orders
-                                        .lock()
-                                        .await
-                                        .insert(report.internal_order_id.clone(), report);
-                                }
-                                yb_tcp_contracts::ExecutionReportModelStatus::Canceled => {
-                                    self.failed_orders
-                                        .lock()
-                                        .await
-                                        .insert(report.internal_order_id.clone(), report);
-                                }
-                                yb_tcp_contracts::ExecutionReportModelStatus::Rejected => {
-                                    self.failed_orders
-                                        .lock()
-                                        .await
-                                        .insert(report.internal_order_id.clone(), report);
-                                }
-                            }
-                        }
-                        FixIncomeMessage::Others(data) => {
-                            println!("Others FIX-Feed: {:?}", data.to_string())
-                        }
-                        FixIncomeMessage::Pong => println!("Pong FIX-Feed"),
-                        FixIncomeMessage::Ping => println!("Ping FIX-Feed"),
-                    },
-                    _ => {}
+                match report.ord_status {
+                    yb_tcp_contracts::ExecutionReportModelStatus::PendingNew => {}
+                    yb_tcp_contracts::ExecutionReportModelStatus::PartiallyFilled => {}
+                    yb_tcp_contracts::ExecutionReportModelStatus::Filled => {
+                        self.success_orders
+                            .lock()
+                            .await
+                            .insert(report.internal_order_id.clone(), report);
+                    }
+                    yb_tcp_contracts::ExecutionReportModelStatus::Canceled => {
+                        self.failed_orders
+                            .lock()
+                            .await
+                            .insert(report.internal_order_id.clone(), report);
+                    }
+                    yb_tcp_contracts::ExecutionReportModelStatus::Rejected => {
+                        self.failed_orders
+                            .lock()
+                            .await
+                            .insert(report.internal_order_id.clone(), report);
+                    }
                 }
             }
+            FixMessage::Others(data) => {
+                println!("Others FIX-Feed: {:?}", data.to_string())
+            }
+            FixMessage::Pong => println!("Pong FIX-Feed"),
+            FixMessage::Ping => println!("Ping FIX-Feed"),
+            _ => {}
         }
     }
 }
