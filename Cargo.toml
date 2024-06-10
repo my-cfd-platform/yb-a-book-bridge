@@ -14,7 +14,9 @@ service-sdk = { git = "https://github.com/MyJetTools/service-sdk", tag = "0.2.5"
 
 yb-tcp-contracts = { git = "https://github.com/my-cfd-platform/yb-tcp-contracts.git", tag = "0.1.6" }
 my-tcp-sockets = { tag = "0.1.9", git = "https://github.com/MyJetTools/my-tcp-sockets.git" }
-my-nosql-contracts = { tag = "0.1.29", git = "https://github.com/my-cfd-platform/my-nosql-contracts.git" }
+my-nosql-contracts = { tag = "0.1.37", git = "https://github.com/my-cfd-platform/my-nosql-contracts.git", features = [
+    "isolated-margin",
+] }
 async-trait = "*"
 tokio = { version = "*", features = ["full"] }
 tonic = { version = "*", features = ["tls", "tls-roots", "prost"] }
